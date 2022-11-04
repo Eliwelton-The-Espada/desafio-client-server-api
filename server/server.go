@@ -7,6 +7,9 @@ import (
 	"log"
 	"net/http"
 	"time"
+
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
 
 type (
@@ -14,6 +17,7 @@ type (
 		Usdbrl Usdbrl `json:"USDBRL"`
 	}
 	Usdbrl struct {
+		ID         int    `gorm:"primaryKey"`
 		Code       string `json:"code"`
 		Codein     string `json:"codein"`
 		Name       string `json:"name"`
@@ -89,10 +93,42 @@ func getCotacao() (outCli OutputClient, err error) {
 		return
 	}
 
-	// save on database
+	err = saveOnDatabase(usdbrl.Usdbrl)
+	if err != nil {
+		return
+	}
 
 	outCli = OutputClient{
 		Bid: usdbrl.Usdbrl.Bid,
 	}
 	return
+}
+
+func saveOnDatabase(usdbrl Usdbrl) error {
+	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Millisecond)
+	defer cancel()
+
+	db, err := gorm.Open(sqlite.Open("test.db"), &gorm.Config{})
+	if err != nil {
+		return err
+	}
+
+	err = db.AutoMigrate(&Usdbrl{})
+	if err != nil {
+		return err
+	}
+
+	db.WithContext(ctx).Create(&usdbrl)
+
+	// Por algum motivo o ID (primary Key) tá sempre iniciando com 0 (Zero)
+	// Devido a isso ele fica sem salvar o registro da primeira request
+	// E a partir da segunda request é que ele começa a salvar porque o ID vai para 1
+	// Não sei se é devido ao SQLite, pois quando eu estava mexendo com o MySQL ele sempre tava iniciando em 1
+	// Deixei um log para uma melhor análise, ele sempre pega o registro do ID atual e printa na tela
+	var out Usdbrl
+	db.First(&out, usdbrl.ID)
+	log.Println("Saved on database:", out)
+
+	return nil
 }
